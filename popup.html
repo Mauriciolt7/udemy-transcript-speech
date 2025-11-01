@@ -4,12 +4,232 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Udemy TTS</title>
+    <style>
+        body {
+            width: 320px;
+            padding: 16px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin: 0;
+        }
+        
+        h2 {
+            margin: 0 0 16px 0;
+            font-size: 20px;
+            text-align: center;
+        }
+        
+        .control-group {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            backdrop-filter: blur(10px);
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        select {
+            width: 100%;
+            padding: 8px;
+            border: none;
+            border-radius: 5px;
+            background: white;
+            color: #333;
+            font-size: 13px;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        
+        select:focus {
+            outline: 2px solid #ffd700;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        #start-tts {
+            background: #10b981;
+            color: white;
+        }
+        
+        #start-tts:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+        
+        #stop-tts {
+            background: #ef4444;
+            color: white;
+        }
+        
+        #stop-tts:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+        }
+        
+        #play-video:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+        
+        #pause-video:hover {
+            background: #d97706;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        #status {
+            text-align: center;
+            padding: 8px;
+            border-radius: 5px;
+            margin-bottom: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        #status.active {
+            background: rgba(16, 185, 129, 0.3);
+        }
+        
+        #status.inactive {
+            background: rgba(239, 68, 68, 0.3);
+        }
+        
+        .speed-control {
+            margin-top: 10px;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            margin: 8px 0;
+        }
+        
+        .speed-value {
+            text-align: center;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .video-status {
+            text-align: center;
+            font-size: 11px;
+            margin-bottom: 10px;
+            opacity: 0.8;
+        }
+        
+        .tip {
+            text-align: center;
+            margin-top: 12px;
+            font-size: 11px;
+            opacity: 0.7;
+            line-height: 1.4;
+        }
+        
+        input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+            cursor: pointer;
+        }
+        
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            text-transform: none;
+            margin-bottom: 8px;
+        }
+    </style>
 </head>
 <body>
-    <button id="start-tts">Iniciar TTS</button>
-    <button id="stop-tts">Detener TTS</button>
+    <h2>🎤 Udemy TTS</h2>
+    
+    <div id="status" class="inactive">⏹️ Stopped</div>
+    <div class="video-status">
+        🎬 Video: <span id="video-state">Unknown</span>
+    </div>
+    
+    <div class="button-group" style="margin-bottom: 12px;">
+        <button id="play-video" style="background: #3b82f6; flex: 1;">▶️ Play</button>
+        <button id="pause-video" style="background: #f59e0b; flex: 1;">⏸️ Pause</button>
+    </div>
+    
+    <div class="control-group">
+        <label for="voice-select">🗣️ Select Voice</label>
+        <select id="voice-select">
+            <option value="">Loading voices...</option>
+        </select>
+        
+        <div class="speed-control">
+            <label for="speed-range">⚡ Speed</label>
+            <input type="range" id="speed-range" min="0.5" max="3.0" step="0.1" value="1.5">
+            <div class="speed-value"><span id="speed-value">1.5</span>x</div>
+        </div>
+        
+        <div class="speed-control">
+            <label for="volume-range">🔊 Volume</label>
+            <input type="range" id="volume-range" min="0.1" max="1.0" step="0.1" value="1.0">
+            <div class="speed-value"><span id="volume-value">1.0</span></div>
+        </div>
+    </div>
+    
+    <div class="control-group">
+        <label>🎭 Natural Speech</label>
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+            <label class="checkbox-label">
+                <input type="checkbox" id="natural-pauses" checked>
+                Natural Pauses (. , ; :)
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" id="emotional-tone" checked>
+                Emotional Tone (! ?)
+            </label>
+        </div>
+    </div>
+    
+    <div class="button-group">
+        <button id="start-tts">▶️ Start TTS</button>
+        <button id="stop-tts">⏹️ Stop TTS</button>
+    </div>
+    
+    <div class="tip">
+        💡 TTS pauses automatically when you pause the video
+    </div>
 
-    <!-- Asegúrate de que popup.js se cargue después del contenido HTML -->
     <script src="popup.js"></script>
 </body>
 </html>
