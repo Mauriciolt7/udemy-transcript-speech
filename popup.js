@@ -6,13 +6,19 @@ document.addEventListener("DOMContentLoaded", function() {
     const volumeValue = document.getElementById("volume-value");
     const naturalPauses = document.getElementById("natural-pauses");
     const emotionalTone = document.getElementById("emotional-tone");
+    const autoTranslate = document.getElementById("auto-translate");
     const statusDiv = document.getElementById("status");
     const videoStateSpan = document.getElementById("video-state");
+    const ttsToggle = document.getElementById("tts-toggle");
     
     // Update TTS status in popup
     function updateTTSStatus() {
         chrome.runtime.sendMessage({ message: "getTTSStatus" }, function(response) {
             if (response) {
+                // Update checkbox state
+                ttsToggle.checked = response.isActive;
+                
+                // Update status text
                 if (response.isActive) {
                     statusDiv.textContent = response.isSpeaking ? "🗣️ Speaking" : "▶️ Active (waiting)";
                     statusDiv.className = "active";
@@ -88,7 +94,7 @@ document.addEventListener("DOMContentLoaded", function() {
             
             // Load saved settings
             chrome.storage.sync.get([
-                'selectedVoice', 'speechRate', 'volume', 'naturalPauses', 'emotionalTone'
+                'selectedVoice', 'speechRate', 'volume', 'naturalPauses', 'emotionalTone', 'autoTranslate'
             ], function(data) {
                 if (data.selectedVoice) voiceSelect.value = data.selectedVoice;
                 if (data.speechRate) {
@@ -101,6 +107,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 }
                 if (data.naturalPauses !== undefined) naturalPauses.checked = data.naturalPauses;
                 if (data.emotionalTone !== undefined) emotionalTone.checked = data.emotionalTone;
+                if (data.autoTranslate !== undefined) autoTranslate.checked = data.autoTranslate;
             });
         });
     }
@@ -168,90 +175,39 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     });
     
-    // Start TTS button
-    document.getElementById("start-tts").addEventListener("click", function() {
+    // Auto-translate
+    autoTranslate.addEventListener("change", function() {
+        chrome.storage.sync.set({ autoTranslate: autoTranslate.checked });
         chrome.runtime.sendMessage({ 
-            message: "startTTS",
-            voice: voiceSelect.value,
-            rate: parseFloat(speedRange.value),
-            volume: parseFloat(volumeRange.value),
-            naturalPauses: naturalPauses.checked,
-            emotionalTone: emotionalTone.checked
-        }, function(response) {
-            if (response && response.isActive) {
-                statusDiv.textContent = "▶️ Active";
-                statusDiv.className = "active";
-            }
-        });
-    });
-
-    // Stop TTS button
-    document.getElementById("stop-tts").addEventListener("click", function() {
-        chrome.runtime.sendMessage({ message: "stopTTS" }, function(response) {
-            statusDiv.textContent = "⏹️ Stopped";
-            statusDiv.className = "inactive";
+            message: "updateSettings",
+            autoTranslate: autoTranslate.checked
         });
     });
     
-    // Play video button
-    document.getElementById("play-video").addEventListener("click", function() {
-        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-            if (tabs[0]) {
-                chrome.scripting.executeScript({
-                    target: {tabId: tabs[0].id, allFrames: true},
-                    function: function() {
-                        const videoElement = document.querySelector('video');
-                        
-                        if (videoElement) {
-                            if (videoElement.paused) {
-                                // Try to play the video
-                                const playPromise = videoElement.play();
-                                if (playPromise !== undefined) {
-                                    playPromise
-                                        .then(() => console.log('Video played successfully'))
-                                        .catch(error => console.error('Play error:', error));
-                                }
-                                return { success: true, action: 'played' };
-                            } else {
-                                return { success: true, action: 'already playing' };
-                            }
-                        }
-                        return { success: false, action: 'video not found' };
-                    }
-                }, (results) => {
-                    console.log('Play result:', results);
-                    setTimeout(checkVideoState, 500);
-                });
-            }
-        });
-    });
-    
-    // Pause video button
-    document.getElementById("pause-video").addEventListener("click", function() {
-        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-            if (tabs[0]) {
-                chrome.scripting.executeScript({
-                    target: {tabId: tabs[0].id, allFrames: true},
-                    function: function() {
-                        const videoElement = document.querySelector('video');
-                        
-                        if (videoElement) {
-                            if (!videoElement.paused) {
-                                // Pause the video directly
-                                videoElement.pause();
-                                console.log('Video paused successfully');
-                                return { success: true, action: 'paused' };
-                            } else {
-                                return { success: true, action: 'already paused' };
-                            }
-                        }
-                        return { success: false, action: 'video not found' };
-                    }
-                }, (results) => {
-                    console.log('Pause result:', results);
-                    setTimeout(checkVideoState, 500);
-                });
-            }
-        });
+    // TTS Toggle checkbox
+    ttsToggle.addEventListener("change", function() {
+        if (ttsToggle.checked) {
+            // Start TTS
+            chrome.runtime.sendMessage({ 
+                message: "startTTS",
+                voice: voiceSelect.value,
+                rate: parseFloat(speedRange.value),
+                volume: parseFloat(volumeRange.value),
+                naturalPauses: naturalPauses.checked,
+                emotionalTone: emotionalTone.checked,
+                autoTranslate: autoTranslate.checked
+            }, function(response) {
+                if (response && response.isActive) {
+                    statusDiv.textContent = "▶️ Active";
+                    statusDiv.className = "active";
+                }
+            });
+        } else {
+            // Stop TTS
+            chrome.runtime.sendMessage({ message: "stopTTS" }, function(response) {
+                statusDiv.textContent = "⏹️ Stopped";
+                statusDiv.className = "inactive";
+            });
+        }
     });
 });

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Udemy TTS</title>
+    <title>Udemy & YouTube TTS</title>
     <style>
         body {
             width: 320px;
@@ -53,63 +53,6 @@
             outline: 2px solid #ffd700;
         }
         
-        .button-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 12px;
-        }
-        
-        button {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 6px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        #start-tts {
-            background: #10b981;
-            color: white;
-        }
-        
-        #start-tts:hover {
-            background: #059669;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-        }
-        
-        #stop-tts {
-            background: #ef4444;
-            color: white;
-        }
-        
-        #stop-tts:hover {
-            background: #dc2626;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
-        }
-        
-        #play-video:hover {
-            background: #2563eb;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-        }
-        
-        #pause-video:hover {
-            background: #d97706;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
-        }
-        
-        button:active {
-            transform: translateY(0);
-        }
-        
         #status {
             text-align: center;
             padding: 8px;
@@ -126,6 +69,72 @@
         
         #status.inactive {
             background: rgba(239, 68, 68, 0.3);
+        }
+        
+        .tts-toggle-label {
+            display: block;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .tts-checkbox {
+            display: none;
+        }
+        
+        .tts-toggle-text {
+            display: inline-block;
+            padding: 14px 28px;
+            background: #10b981;
+            color: white;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .tts-toggle-text:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+        
+        .tts-checkbox:checked + .tts-toggle-text {
+            background: #ef4444;
+        }
+        
+        .tts-checkbox:checked + .tts-toggle-text:hover {
+            background: #dc2626;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+        }
+        
+        .toggle-on {
+            display: none;
+        }
+        
+        .tts-checkbox:checked ~ .tts-toggle-text .toggle-off {
+            display: none;
+        }
+        
+        .tts-checkbox:checked ~ .tts-toggle-text .toggle-on {
+            display: inline;
+        }
+        
+        .tts-checkbox + .tts-toggle-text .toggle-on {
+            display: none;
+        }
+        
+        .tts-checkbox + .tts-toggle-text .toggle-off {
+            display: inline;
+        }
+        
+        .tts-checkbox:checked + .tts-toggle-text .toggle-off {
+            display: none;
+        }
+        
+        .tts-checkbox:checked + .tts-toggle-text .toggle-on {
+            display: inline;
         }
         
         .speed-control {
@@ -183,9 +192,14 @@
         🎬 Video: <span id="video-state">Unknown</span>
     </div>
     
-    <div class="button-group" style="margin-bottom: 12px;">
-        <button id="play-video" style="background: #3b82f6; flex: 1;">▶️ Play</button>
-        <button id="pause-video" style="background: #f59e0b; flex: 1;">⏸️ Pause</button>
+    <div class="control-group" style="text-align: center;">
+        <label class="tts-toggle-label">
+            <input type="checkbox" id="tts-toggle" class="tts-checkbox">
+            <span class="tts-toggle-text">
+                <span class="toggle-off">▶️ Start TTS</span>
+                <span class="toggle-on">⏹️ Stop TTS</span>
+            </span>
+        </label>
     </div>
     
     <div class="control-group">
@@ -211,6 +225,10 @@
         <label>🎭 Natural Speech</label>
         <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
             <label class="checkbox-label">
+                <input type="checkbox" id="auto-translate" checked>
+                🌐 Auto-translate English to Spanish
+            </label>
+            <label class="checkbox-label">
                 <input type="checkbox" id="natural-pauses" checked>
                 Natural Pauses (. , ; :)
             </label>
@@ -219,11 +237,6 @@
                 Emotional Tone (! ?)
             </label>
         </div>
-    </div>
-    
-    <div class="button-group">
-        <button id="start-tts">▶️ Start TTS</button>
-        <button id="stop-tts">⏹️ Stop TTS</button>
     </div>
     
     <div class="tip">

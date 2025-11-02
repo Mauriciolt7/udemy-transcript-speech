@@ -2,8 +2,8 @@
   "manifest_version": 3,
 
   "name": "Udemy TTS",
-  "version": "1.0",
-  "description": "Convierte subtítulos de Udemy a voz",
+  "version": "2.0",
+  "description": "Convierte subtítulos de Udemy a voz en español",
   "icons": {
 	  "128": "icon.png"
   },
