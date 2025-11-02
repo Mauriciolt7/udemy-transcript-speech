@@ -1,5 +1,5 @@
 let isSpeaking = false;
-let lastSubtitle = "";
+let lastSubtitle = ""; // stores a normalized key of the last spoken subtitle
 let isTTSActive = false;
 let wasVideoPaused = false; // Track if video was paused
 let udemyTabId = null; // Store the Udemy tab ID
@@ -56,7 +56,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         chrome.tts.stop();
         isSpeaking = false;
         wasVideoPaused = false; // Reset pause state
-        lastSubtitle = ""; // Reset last subtitle
+    lastSubtitle = ""; // Reset last subtitle key
         udemyTabId = null; // Clear tab ID
         sendResponse({ isActive: false });
     } else if (request.message === "updateSettings") {
@@ -109,41 +109,131 @@ function findUdemyTab(callback) {
 
 function executeScriptOnTab(tabId, callback) {
     chrome.scripting.executeScript({
-        target: {tabId: tabId},
+        target: { tabId, allFrames: true },
         function: getSubtitleAndVideoState,
+        world: 'MAIN'
     }, (injectionResults) => {
         if (chrome.runtime.lastError) {
             console.error('Script injection error:', chrome.runtime.lastError);
-            callback({data: null});
+            callback({ data: null });
             return;
         }
-        
+
         if (injectionResults && injectionResults.length > 0) {
-            callback({data: injectionResults[0].result});
+            // Prefer results with transcript, then captions, else propagate playing state
+            let best = null;
+            let anyPlaying = false;
+            for (const r of injectionResults) {
+                const res = r.result || {};
+                if (res && res.isVideoPlaying) anyPlaying = true;
+                if (res && res.transcriptText) {
+                    best = res;
+                    break;
+                }
+                if (!best && res && res.captionText) {
+                    best = res;
+                }
+            }
+
+            if (!best) {
+                best = { isVideoPlaying: anyPlaying };
+            } else {
+                best.isVideoPlaying = best.isVideoPlaying || anyPlaying;
+            }
+
+            callback({ data: best });
         } else {
-            callback({data: null});
+            callback({ data: null });
         }
     });
 }
 
 function getSubtitleAndVideoState() {
-    let subtitleText = null;
+    let transcriptText = null;
+    let captionText = null;
     let isPlaying = false;
-    
-    // Udemy subtitles
-    let activeSubtitleElement = document.querySelector('[data-purpose="transcript-cue-active"] > [data-purpose="cue-text"]');
+
+    // Try to read transcript panel (when it's open)
+    const activeSubtitleElement = document.querySelector('[data-purpose="transcript-cue-active"] > [data-purpose="cue-text"]');
     if (activeSubtitleElement) {
-        subtitleText = activeSubtitleElement.innerText;
+        transcriptText = activeSubtitleElement.innerText;
     }
-    
-    // Detect if video is playing
-    let videoElement = document.querySelector('video');
+
+    // Detect if video is playing and try grabbing on-screen captions from textTracks
+    const videoElement = document.querySelector('video');
     if (videoElement) {
         isPlaying = !videoElement.paused && !videoElement.ended && videoElement.readyState > 2;
+
+        // Read active cues from any showing text track (closed captions/subtitles)
+        try {
+            const tracks = Array.from(videoElement.textTracks || []);
+            // Ensure tracks can populate activeCues
+            for (const track of tracks) {
+                if ((track.kind === 'subtitles' || track.kind === 'captions') && track.mode === 'disabled') {
+                    track.mode = 'hidden';
+                }
+            }
+            // Prefer tracks that are currently showing or hidden
+            const showingTracks = tracks.filter(t => t.mode === 'showing' || t.mode === 'hidden');
+            const candidateTracks = showingTracks.length ? showingTracks : tracks;
+            for (const track of candidateTracks) {
+                const cues = track.activeCues ? Array.from(track.activeCues) : [];
+                if (cues.length) {
+                    // Join all active cues' text, trimming whitespace
+                    const parts = cues.map(c => (c.text || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+                    if (parts.length) {
+                        captionText = parts.join(' ').trim();
+                        break;
+                    }
+                }
+            }
+        } catch (e) {
+            // Swallow errors from inaccessible tracks
+        }
+
+        // DOM fallback: try to read common caption overlay containers (e.g., video.js)
+        if (!captionText) {
+            try {
+                const isInsideTranscript = (el) => !!el.closest('[data-purpose="transcript"]');
+                const selectors = [
+                    '.vjs-text-track-display',
+                    '.vjs-text-track-cue',
+                    '.vjs-caption-subtitles',
+                    '[class*="caption"]',
+                    '[class*="Caption"]',
+                    '[class*="subtitle"]',
+                    '[class*="Subtitle"]',
+                    '[data-purpose="captions"]',
+                    '[data-purpose="video-player"] .captions',
+                    '[data-purpose="video-player"] [class*="subtitle"]',
+                    '[data-purpose="captions-overlay"]',
+                    '[data-purpose="captions-container"]',
+                    'span.captions-display__caption'
+                ];
+                for (const sel of selectors) {
+                    const nodes = Array.from(document.querySelectorAll(sel));
+                    for (const n of nodes) {
+                        if (!n) continue;
+                        if (isInsideTranscript(n)) continue;
+                        const style = window.getComputedStyle(n);
+                        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+                        const text = (n.innerText || '').replace(/\s+/g, ' ').trim();
+                        if (text && text.length > 0) {
+                            captionText = text;
+                            break;
+                        }
+                    }
+                    if (captionText) break;
+                }
+            } catch (_) {
+                // ignore
+            }
+        }
     }
-    
+
     return {
-        text: subtitleText,
+        transcriptText,
+        captionText,
         isVideoPlaying: isPlaying
     };
 }
@@ -151,32 +241,43 @@ function getSubtitleAndVideoState() {
 // Translate text to Spanish using MyMemory API
 async function translateToSpanish(text) {
     if (!text || !ttsSettings.autoTranslate) return text;
-    
+
+    // If it already looks like Spanish, don't translate
+    if (isLikelySpanish(text)) return text;
+
     try {
         const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|es`;
         const response = await fetch(url);
         const data = await response.json();
-        
-        if (data.responseData && data.responseData.translatedText) {
+
+        if (data && data.responseData && data.responseData.translatedText) {
             let translatedText = data.responseData.translatedText;
-            
-            // Filter out MyMemory warning messages
-            if (translatedText.includes('MYMEMORY WARNING') || 
-                translatedText.includes('MyMemory Warning') ||
-                translatedText.includes('YOU USED ALL AVAILABLE FREE TRANSLATIONS')) {
-                console.warn('MyMemory API limit reached, using original text');
-                return text; // Return original text instead of warning
+
+            // Filter out MyMemory warning messages or obvious non-translation
+            const warning = translatedText.includes('MYMEMORY WARNING') ||
+                            translatedText.includes('MyMemory Warning') ||
+                            translatedText.includes('YOU USED ALL AVAILABLE FREE TRANSLATIONS');
+            if (warning) {
+                console.warn('MyMemory API limit reached or warning. Skipping speaking to avoid English.');
+                return null; // signal to skip
             }
-            
+
+            // If translation appears unchanged and input is likely English, skip speaking
+            if (normalizeKey(translatedText) === normalizeKey(text) && isLikelyEnglish(text)) {
+                console.warn('Translation unchanged for English input. Skipping to avoid English speech.');
+                return null;
+            }
+
             console.log('Original:', text);
             console.log('Translated:', translatedText);
             return translatedText;
         }
-        
-        return text; // Return original if translation fails
+
+        // No translation; if likely English, skip, else return original
+        return isLikelyEnglish(text) ? null : text;
     } catch (error) {
         console.error('Translation error:', error);
-        return text; // Return original on error
+        return isLikelyEnglish(text) ? null : text;
     }
 }
 
@@ -209,12 +310,77 @@ function improveTextForSpeech(text) {
     return improvedText;
 }
 
+// Remove UI labels and non-speech markers from captions (e.g., "English", "[Music]")
+function sanitizeSubtitleText(text) {
+    if (!text) return '';
+    let t = String(text);
+    // Remove common non-speech markers like [Music], [Applause], [Inaudible]
+    t = t.replace(/\[[^\]]+\]/g, ' ');
+    // Remove leading dashes used in dialogues
+    t = t.replace(/^[-–—]\s*/g, '');
+    // Collapse whitespace
+    t = t.replace(/\s+/g, ' ').trim();
+
+    const lower = t.toLowerCase();
+    const blockedExact = [
+        'english', 'inglés', 'ingles', 'spanish', 'español',
+        'captions', 'subtitles', 'subtítulos', 'cc',
+        'auto-generated', 'autogenerado'
+    ];
+    if (blockedExact.includes(lower)) return '';
+
+    // Short UI labels like "English (auto-generated)"
+    if (t.length <= 25 && /(english|spanish|español)/i.test(t)) {
+        return '';
+    }
+
+    return t;
+}
+
+// Simple language heuristics to avoid speaking English when auto-translate fails
+function isLikelySpanish(text) {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    const hasSpanishChars = /[áéíóúñü¡¿]/i.test(text);
+    const spanishStop = [' el ', ' la ', ' de ', ' que ', ' y ', ' en ', ' los ', ' se ', ' del ', ' las ', ' para ', ' como '];
+    const stopHit = spanishStop.some(w => lower.includes(w));
+    return hasSpanishChars || stopHit;
+}
+
+function isLikelyEnglish(text) {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    const englishStop = [' the ', ' and ', ' of ', ' to ', ' in ', ' is ', ' you ', ' that ', ' for ', ' with ', ' on ', ' as ', ' it ', ' this ', ' are '];
+    const shortEnglish = ['ok', 'okay', 'yes', 'no', 'right', 'well', 'so', 'uh', 'um'];
+    const stopHit = englishStop.some(w => lower.includes(w));
+    const shortHit = shortEnglish.includes(lower.trim());
+    const hasSpanishChars = /[áéíóúñü¡¿]/i.test(text);
+    return (stopHit || shortHit) && !hasSpanishChars;
+}
+
+function normalizeKey(text) {
+    return (text || '')
+        .toLowerCase()
+        .replace(/[\s\u00A0]+/g, ' ')
+        .replace(/[\.,;:!\?\(\)\[\]"'`]/g, '')
+        .trim();
+}
+
 function speakSubtitle() {
     if (!isTTSActive || isSpeaking) return;
 
     fetchSubtitle(function(response) {
         if (response && response.data) {
-            let subtitleText = response.data.text;
+            // Prefer transcript text when available; otherwise fall back to on-screen captions
+            let usedSource = 'none';
+            let subtitleText = null;
+            if (response.data.transcriptText) {
+                subtitleText = response.data.transcriptText;
+                usedSource = 'transcript';
+            } else if (response.data.captionText) {
+                subtitleText = response.data.captionText;
+                usedSource = 'captions';
+            }
             let isVideoPlaying = response.data.isVideoPlaying;
             
             // If video is not playing, pause TTS and wait
@@ -235,35 +401,54 @@ function speakSubtitle() {
                 wasVideoPaused = false;
             }
             
-            // If no subtitle text, wait
-            if (!subtitleText) {
+            // Sanitize to avoid picking UI labels like "English"
+            const sanitized = sanitizeSubtitleText(subtitleText || '');
+
+            // If no subtitle text from either source, or sanitized empty, wait
+            if (!sanitized) {
                 return;
             }
             
-            // If same subtitle, skip
-            if (subtitleText === lastSubtitle) {
+            // If same subtitle (normalized), skip
+            const key = normalizeKey(sanitized);
+            if (key && key === lastSubtitle) {
                 return;
             }
             
             // New subtitle detected - speak immediately
-            lastSubtitle = subtitleText;
             isSpeaking = true;
             
-            console.log('New subtitle:', subtitleText);
+            console.log(`New subtitle (${usedSource}):`, sanitized);
             
             // Translate and speak immediately (no buffer)
             if (ttsSettings.autoTranslate) {
-                translateToSpanish(subtitleText).then(translatedText => {
-                    processAndSpeak(translatedText);
+                translateToSpanish(sanitized).then(translatedText => {
+                    if (translatedText) {
+                        processAndSpeak(translatedText);
+                        lastSubtitle = key; // commit key only after we actually speak
+                    } else {
+                        // Skip speaking to avoid English when translation failed
+                        isSpeaking = false;
+                        lastSubtitle = key; // mark as processed to avoid loops on the same cue
+                        console.warn('Skipped speaking English due to translation failure/limit');
+                    }
                 });
             } else {
-                processAndSpeak(subtitleText);
+                processAndSpeak(sanitized);
+                lastSubtitle = key;
             }
         }
     });
 }
 
 function processAndSpeak(text) {
+    // Guard: when auto-translate is ON, never speak clear English lines
+    if (ttsSettings.autoTranslate && isLikelyEnglish(text) && !isLikelySpanish(text)) {
+        console.warn('Process skipped: text appears English while auto-translate is ON.');
+        isSpeaking = false;
+        return;
+    }
+
     // Improve text for more natural speech
     const improvedText = improveTextForSpeech(text);
 
@@ -291,7 +476,16 @@ function processAndSpeak(text) {
     
     // Add voice name only if specific voice selected
     if (ttsSettings.voice) {
-        speakOptions.voiceName = ttsSettings.voice;
+        // If auto-translate is ON, avoid forcing a non-Spanish voice
+        if (ttsSettings.autoTranslate) {
+            const v = String(ttsSettings.voice);
+            const looksSpanish = /(\bes\b|spanish|español)/i.test(v);
+            if (looksSpanish) {
+                speakOptions.voiceName = ttsSettings.voice;
+            } // else: let Chrome pick a Spanish voice based on lang
+        } else {
+            speakOptions.voiceName = ttsSettings.voice;
+        }
     }
     
     chrome.tts.speak(improvedText, speakOptions);
